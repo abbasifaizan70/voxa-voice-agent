@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 
 async function ready(page: Page) {
   await page.route('**/api/health', (route) =>
-    route.fulfill({ json: { status: 'ok', configured: true } }),
+    route.fulfill({
+      json: { status: 'ok', configured: true, provider: 'openai', speechOutput: 'openai' },
+    }),
   );
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Start talking', exact: true })).toBeEnabled();
@@ -14,11 +16,85 @@ async function record(page: Page) {
   await page.waitForTimeout(1100); // Actual recorded audio must pass the minimum-duration gate.
   await page.getByRole('button', { name: 'Finish speaking' }).click();
 }
+test('Groq setup names its key and selects browser voice automatically', async ({ page }) => {
+  await page.route('**/api/health', (route) =>
+    route.fulfill({
+      json: { status: 'ok', configured: false, provider: 'groq', speechOutput: 'browser' },
+    }),
+  );
+  await page.goto('/');
+  await expect(page.getByText('GROQ_API_KEY', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start talking', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Open voice settings' }).click();
+  await expect(page.getByLabel('Voice output')).toHaveValue('browser');
+  await expect(page.getByLabel('Voice output')).toBeDisabled();
+  await expect(page.getByLabel('Choose a voice')).toHaveCount(0);
+  await expect(
+    page.getByText(/Live audio and conversation context are sent to Groq/),
+  ).toBeVisible();
+});
+
+test('Groq records and speaks through the browser without calling the paid speech endpoint', async ({
+  page,
+}) => {
+  const spoken: string[] = [];
+  const inputs: { text: string; history: unknown[] }[] = [];
+  let speechRequests = 0;
+  let uploadSize = 0;
+  await page.exposeFunction('captureSpeech', (text: string) => spoken.push(text));
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'speechSynthesis', {
+      value: {
+        speak(utterance: SpeechSynthesisUtterance) {
+          void (window as unknown as { captureSpeech(text: string): Promise<void> }).captureSpeech(
+            utterance.text,
+          );
+          setTimeout(() => utterance.dispatchEvent(new Event('end')), 0);
+        },
+        cancel() {},
+      },
+    });
+  });
+  await page.route('**/api/health', (route) =>
+    route.fulfill({
+      json: { status: 'ok', configured: true, provider: 'groq', speechOutput: 'browser' },
+    }),
+  );
+  await page.route('**/api/transcribe', (route) => {
+    uploadSize = route.request().postDataBuffer()?.length ?? 0;
+    return route.fulfill({ json: { text: 'Plan a short walk.' } });
+  });
+  await page.route('**/api/respond', (route) => {
+    inputs.push(route.request().postDataJSON());
+    return route.fulfill({ json: { text: 'Try a nearby park.' } });
+  });
+  await page.route('**/api/speak', (route) => {
+    speechRequests++;
+    return route.fulfill({ status: 500 });
+  });
+  await page.goto('/');
+  await expect(page.getByText('Groq · Ready to connect')).toBeVisible();
+  await record(page);
+  await expect.poll(() => spoken.length).toBe(1);
+  await expect(page.getByRole('heading', { name: 'Ready when you are' })).toBeVisible();
+  expect(uploadSize).toBeGreaterThan(1000);
+  expect(spoken[0]).toBe('Try a nearby park.');
+  await record(page);
+  await expect.poll(() => spoken.length).toBe(2);
+  expect(inputs[1].history).toEqual([
+    { role: 'user', content: 'Plan a short walk.' },
+    { role: 'assistant', content: 'Try a nearby park.' },
+  ]);
+  expect(speechRequests).toBe(0);
+});
+
 test('shows honest setup state and responsive preview, sample, settings, reset', async ({
   page,
 }) => {
   await page.route('**/api/health', (route) =>
-    route.fulfill({ json: { status: 'ok', configured: false } }),
+    route.fulfill({
+      json: { status: 'ok', configured: false, provider: 'openai', speechOutput: 'openai' },
+    }),
   );
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Start talking', exact: true })).toBeDisabled();

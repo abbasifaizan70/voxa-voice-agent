@@ -12,6 +12,8 @@ interface Props {
   remember: boolean;
   setRemember(value: boolean): void;
   storageError: boolean;
+  providerLabel: string;
+  browserOnly: boolean;
 }
 export function Settings(props: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -48,15 +50,18 @@ export function Settings(props: Props) {
             Voice output
           </label>
           <p className="mb-3 text-xs leading-relaxed text-muted">
-            OpenAI provides the default voice. Browser voice uses your device’s speech service.
+            {props.browserOnly
+              ? 'Groq mode uses your browser’s speech service. No OpenAI voice credits are needed.'
+              : 'OpenAI provides the default voice. Browser voice uses your device’s speech service.'}
           </p>
           <select
             id="output"
             value={props.output}
+            disabled={props.browserOnly}
             onChange={(e) => props.setOutput(e.target.value as Props['output'])}
             className="w-full rounded-xl border border-line bg-white px-3 py-2.5 text-sm"
           >
-            <option value="openai">OpenAI voice</option>
+            {!props.browserOnly && <option value="openai">OpenAI voice</option>}
             <option value="browser">Browser voice</option>
           </select>
         </div>
@@ -101,8 +106,9 @@ export function Settings(props: Props) {
         </p>
       )}
       <p className="mt-6 rounded-xl bg-white p-3 text-xs leading-relaxed text-muted">
-        Live audio and conversation context are sent to OpenAI. This app does not save recordings.
-        The voice you hear is AI-generated.
+        Live audio and conversation context are sent to {props.providerLabel}. This app does not
+        save recordings. Browser voice may use your device or browser vendor’s speech service. The
+        voice you hear is AI-generated.
       </p>
       <button
         onClick={props.onClose}

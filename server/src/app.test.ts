@@ -18,10 +18,25 @@ describe('voice API', () => {
     expect((await request(app).get('/api/health')).body).toEqual({
       status: 'ok',
       configured: false,
+      provider: 'openai',
+      speechOutput: 'openai',
     });
     const result = await request(app).post('/api/respond').send({ text: 'Hello' });
     expect(result.status).toBe(503);
     expect(result.body.error.code).toBe('NOT_CONFIGURED');
+  });
+  it('reports Groq browser speech and requests the selected provider key', async () => {
+    const app = createApp({ providerName: 'groq' });
+    expect((await request(app).get('/api/health')).body).toEqual({
+      status: 'ok',
+      configured: false,
+      provider: 'groq',
+      speechOutput: 'browser',
+    });
+    const result = await request(app).post('/api/respond').send({ text: 'Hello' });
+    expect(result.status).toBe(503);
+    expect(result.body.error.message).toContain('GROQ_API_KEY');
+    expect(result.body.error.message).not.toContain('OPENAI_API_KEY');
   });
   it('transcribes a multipart recording with a normalized content type', async () => {
     const { app, provider } = setup();

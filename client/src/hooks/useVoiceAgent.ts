@@ -40,7 +40,9 @@ export function useVoiceAgent() {
   const [level, setLevel] = useState(0);
   const [seconds, setSeconds] = useState(0);
   const [voice, setVoice] = useState<Voice>('coral');
-  const [output, setOutput] = useState<'openai' | 'browser'>('openai');
+  const [preferredOutput, setOutput] = useState<'openai' | 'browser'>('openai');
+  const output = health?.speechOutput === 'browser' ? 'browser' : preferredOutput;
+  const providerLabel = health?.provider === 'groq' ? 'Groq' : 'OpenAI';
   const [activeMessage, setActiveMessage] = useState<string | null>(null);
   const generation = useRef(0);
   const abort = useRef<AbortController | null>(null);
@@ -100,7 +102,8 @@ export function useVoiceAgent() {
   const checkHealth = async (signal?: AbortSignal) => {
     setHealthError(false);
     try {
-      setHealth(await api.health(signal));
+      const result = await api.health(signal);
+      if (!signal?.aborted) setHealth(result);
     } catch {
       if (!signal?.aborted) {
         setHealth(null);
@@ -142,7 +145,11 @@ export function useVoiceAgent() {
     };
     if (output === 'browser' || message.sample) {
       if (!('speechSynthesis' in window))
-        throw new Error('Browser speech is not supported here. Choose OpenAI voice in settings.');
+        throw new Error(
+          health?.speechOutput === 'browser'
+            ? 'Browser speech is not supported here. Try a current Chrome, Edge, or Safari browser.'
+            : 'Browser speech is not supported here. Choose OpenAI voice in settings.',
+        );
       const speech = new SpeechSynthesisUtterance(message.content);
       utterance.current = speech;
       speech.onend = finished;
@@ -237,7 +244,7 @@ export function useVoiceAgent() {
     setError(null);
     setSeconds(0);
     if (!health?.configured) {
-      setError('Connect OpenAI on the server to start a live conversation.');
+      setError(`Connect ${providerLabel} on the server to start a live conversation.`);
       return;
     }
     const token = generation.current;
@@ -289,6 +296,7 @@ export function useVoiceAgent() {
     messages,
     health,
     healthError,
+    providerLabel,
     error,
     canRetry,
     level,

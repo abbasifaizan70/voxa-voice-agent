@@ -83,7 +83,7 @@ export default function App() {
               className={`size-1.5 rounded-full ${agent.health?.configured ? 'bg-emerald-600' : 'bg-amber-500'}`}
             />
             {agent.health?.configured
-              ? 'Ready to connect'
+              ? `${agent.providerLabel} · Ready to connect`
               : agent.healthError
                 ? 'Server offline'
                 : agent.health
@@ -274,8 +274,11 @@ export default function App() {
                 'Start the Node server, then check the connection.'
               ) : (
                 <>
-                  Add <code className="text-[11px]">OPENAI_API_KEY</code> to the server’s{' '}
-                  <code>.env</code> and restart. You can preview a sample now.
+                  Add{' '}
+                  <code className="text-[11px]">
+                    {agent.health?.provider === 'groq' ? 'GROQ_API_KEY' : 'OPENAI_API_KEY'}
+                  </code>{' '}
+                  to the server’s <code>.env</code> and restart. You can preview a sample now.
                 </>
               )}
             </p>
@@ -331,8 +334,8 @@ export default function App() {
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line py-5 text-[10px] text-muted">
         <span>Less typing. More human.</span>
         <span>
-          Built with React, Whisper & OpenAI<span className="mx-3 text-line">/</span>Made for a
-          conversation.
+          Built with React, Whisper & {agent.providerLabel}
+          <span className="mx-3 text-line">/</span>Made for a conversation.
         </span>
       </footer>
 
@@ -346,6 +349,8 @@ export default function App() {
         remember={agent.remember}
         setRemember={agent.setRemember}
         storageError={agent.storageError}
+        providerLabel={agent.providerLabel}
+        browserOnly={agent.health?.speechOutput === 'browser'}
       />
       <dialog
         ref={helpDialog}
@@ -388,9 +393,9 @@ export default function App() {
           ))}
         </ol>
         <p className="text-xs leading-6 text-muted">
-          Voxa sends live recordings and recent conversation context to OpenAI. Recordings are not
-          saved by the app. Transcripts stay in memory unless you enable browser storage in
-          settings. Reset clears the conversation.
+          Voxa sends live recordings and recent conversation context to {agent.providerLabel}.
+          Recordings are not saved by the app. Transcripts stay in memory unless you enable browser
+          storage in settings. Reset clears the conversation.
         </p>
         <button
           onClick={() => setHelp(false)}

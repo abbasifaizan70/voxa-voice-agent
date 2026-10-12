@@ -1,5 +1,5 @@
 import OpenAI, { toFile } from 'openai';
-import type { ContextMessage, Voice } from '../../shared/contracts.js';
+import type { ContextMessage, Health, Voice } from '../../shared/contracts.js';
 import { AppError } from './errors.js';
 
 // The transport depends on this interface, so tests never need credentials or paid calls.
@@ -9,10 +9,30 @@ export interface VoiceProvider {
   speak(text: string, voice: Voice, signal: AbortSignal): Promise<Buffer>;
 }
 
-export function createOpenAIProvider(env: NodeJS.ProcessEnv): VoiceProvider | undefined {
-  if (!env.OPENAI_API_KEY?.trim()) return undefined;
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, timeout: 40_000, maxRetries: 0 });
-  return {
+export function createProvider(env: NodeJS.ProcessEnv): {
+  providerName: Health['provider'];
+  provider?: VoiceProvider;
+} {
+  const providerName = env.AI_PROVIDER?.trim() || 'openai';
+  if (providerName !== 'openai' && providerName !== 'groq')
+    throw new Error('AI_PROVIDER must be openai or groq.');
+  const groq = providerName === 'groq';
+  const apiKey = (groq ? env.GROQ_API_KEY : env.OPENAI_API_KEY)?.trim();
+  // Never fall back to a different provider or send its credentials to the wrong host.
+  if (!apiKey) return { providerName };
+  const client = new OpenAI({
+    apiKey,
+    baseURL: groq ? 'https://api.groq.com/openai/v1' : 'https://api.openai.com/v1',
+    timeout: 40_000,
+    maxRetries: 0,
+  });
+  const chatModel = groq
+    ? env.GROQ_CHAT_MODEL || 'openai/gpt-oss-20b'
+    : env.CHAT_MODEL || 'gpt-4.1-mini';
+  const transcriptionModel = groq
+    ? env.GROQ_TRANSCRIPTION_MODEL || 'whisper-large-v3-turbo'
+    : env.TRANSCRIPTION_MODEL || 'whisper-1';
+  const provider: VoiceProvider = {
     async transcribe(audio, mime, signal) {
       const extension = (
         {
@@ -26,7 +46,7 @@ export function createOpenAIProvider(env: NodeJS.ProcessEnv): VoiceProvider | un
       const result = await client.audio.transcriptions.create(
         {
           file: await toFile(audio, `recording.${extension}`, { type: mime }),
-          model: env.TRANSCRIPTION_MODEL || 'whisper-1',
+          model: transcriptionModel,
         },
         { signal },
       );
@@ -36,9 +56,13 @@ export function createOpenAIProvider(env: NodeJS.ProcessEnv): VoiceProvider | un
       // Chat Completions keeps this bounded, text-only context simple and explicit.
       const result = await client.chat.completions.create(
         {
-          model: env.CHAT_MODEL || 'gpt-4.1-mini',
-          store: false,
-          max_completion_tokens: 350,
+          model: chatModel,
+          ...(groq ? {} : { store: false }),
+          // GPT-OSS needs room for reasoning as well as the short spoken answer.
+          max_completion_tokens: groq ? 2048 : 350,
+          ...(groq && chatModel.startsWith('openai/gpt-oss-')
+            ? { reasoning_effort: 'low' as const, include_reasoning: false }
+            : {}),
           messages: [
             {
               role: 'system',
@@ -61,6 +85,12 @@ export function createOpenAIProvider(env: NodeJS.ProcessEnv): VoiceProvider | un
       return answer;
     },
     async speak(text, voice, signal) {
+      if (groq)
+        throw new AppError(
+          409,
+          'BROWSER_SPEECH_ONLY',
+          'Groq mode uses browser voice. Refresh the app to load the current voice settings.',
+        );
       const result = await client.audio.speech.create(
         {
           model: env.TTS_MODEL || 'gpt-4o-mini-tts',
@@ -73,4 +103,5 @@ export function createOpenAIProvider(env: NodeJS.ProcessEnv): VoiceProvider | un
       return Buffer.from(await result.arrayBuffer());
     },
   };
+  return { providerName, provider };
 }

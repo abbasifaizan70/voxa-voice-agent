@@ -6,12 +6,18 @@ import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { ZodError } from 'zod';
 import OpenAI from 'openai';
-import { MAX_AUDIO_BYTES, respondSchema, speakSchema } from '../../shared/contracts.js';
+import {
+  MAX_AUDIO_BYTES,
+  respondSchema,
+  speakSchema,
+  type Health,
+} from '../../shared/contracts.js';
 import { AppError } from './errors.js';
 import type { VoiceProvider } from './provider.js';
 
 interface Options {
   provider?: VoiceProvider;
+  providerName?: Health['provider'];
   production?: boolean;
   origin?: string;
   rateLimitMax?: number;
@@ -21,6 +27,7 @@ const supportedAudio = new Set(['audio/webm', 'audio/mp4', 'audio/wav', 'audio/m
 
 export function createApp(options: Options = {}) {
   const app = express();
+  const providerName = options.providerName ?? 'openai';
   app.disable('x-powered-by');
   app.use(
     helmet({
@@ -36,7 +43,12 @@ export function createApp(options: Options = {}) {
     next();
   });
   app.get('/api/health', (_req, res) =>
-    res.json({ status: 'ok', configured: Boolean(options.provider) }),
+    res.json({
+      status: 'ok',
+      configured: Boolean(options.provider),
+      provider: providerName,
+      speechOutput: providerName === 'groq' ? 'browser' : 'openai',
+    } satisfies Health),
   );
   // Same-origin production and an explicit development allowlist. No permissive CORS.
   app.use('/api', (req, _res, next) => {
@@ -82,7 +94,7 @@ export function createApp(options: Options = {}) {
         : new AppError(
             503,
             'NOT_CONFIGURED',
-            'Add OPENAI_API_KEY to the server .env file, then restart the server.',
+            `Add ${providerName === 'groq' ? 'GROQ_API_KEY' : 'OPENAI_API_KEY'} to the server .env file, then restart the server.`,
           ),
     );
   };

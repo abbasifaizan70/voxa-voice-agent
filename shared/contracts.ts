@@ -34,4 +34,6 @@ export interface ApiErrorBody {
 export interface Health {
   status: 'ok';
   configured: boolean;
+  provider: 'openai' | 'groq';
+  speechOutput: 'openai' | 'browser';
 }
