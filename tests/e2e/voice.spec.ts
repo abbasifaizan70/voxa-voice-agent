@@ -22,10 +22,10 @@ test('shows honest setup state and responsive preview, sample, settings, reset',
   );
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Start talking', exact: true })).toBeDisabled();
-  await page.screenshot({ path: 'docs/desktop.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/screenshots/desktop.png', fullPage: true });
   await page.getByRole('button', { name: 'Preview a sample conversation' }).click();
   await expect(page.getByText('Sample conversation · not a live response')).toBeVisible();
-  await page.screenshot({ path: 'docs/conversation.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/screenshots/conversation.png', fullPage: true });
   await page.getByRole('button', { name: 'Open voice settings' }).click();
   await page.getByLabel('Remember this conversation').check();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -33,7 +33,7 @@ test('shows honest setup state and responsive preview, sample, settings, reset',
   await expect(page.getByText('Good conversations start')).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('body')).toHaveJSProperty('scrollWidth', 390);
-  await page.screenshot({ path: 'docs/mobile.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/screenshots/mobile.png', fullPage: true });
 });
 test('records with MediaRecorder, sends audio, preserves context, and plays the reply', async ({
   page,
@@ -242,6 +242,32 @@ test('opt-in history survives reload and reset clears persistent messages', asyn
   await page.reload();
   await expect(page.getByText('Good conversations start')).toBeVisible();
   await expect(page.getByText('Remember my thought.', { exact: true })).toHaveCount(0);
+});
+
+test('a stalled audio visualizer does not block recording or microphone cleanup', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    AudioContext.prototype.resume = () => new Promise<void>(() => {});
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (options) => {
+      const stream = await original(options);
+      (window as unknown as { captured: MediaStream }).captured = stream;
+      return stream;
+    };
+  });
+  await ready(page);
+  await page.getByRole('button', { name: 'Start talking', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Listening to you' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel current activity' }).click();
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { captured: MediaStream }).captured
+        .getTracks()
+        .every((track) => track.readyState === 'ended'),
+    ),
+  ).toBe(true);
+  await expect(page.getByRole('heading', { name: 'Ready when you are' })).toBeVisible();
 });
 
 test('automatic recording deadline finishes the recording and releases the microphone', async ({

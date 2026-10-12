@@ -57,7 +57,9 @@ export async function openMicrophone(onLevel: (level: number) => void): Promise<
     recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64_000 });
     try {
       context = new AudioContext();
-      await context.resume();
+      // Some browsers can leave resume() pending behind an autoplay policy.
+      // Recording and cleanup must never wait on the optional level analyser.
+      void context.resume().catch(() => {});
       const analyser = context.createAnalyser();
       analyser.fftSize = 256;
       context.createMediaStreamSource(stream).connect(analyser);
@@ -91,7 +93,7 @@ export async function openMicrophone(onLevel: (level: number) => void): Promise<
       reject(new Error('Recording failed. Please try again.'));
     };
     recorder.onstop = () => {
-      const analyzed = Boolean(context);
+      const analyzed = context?.state === 'running';
       cleanup();
       const blob = new Blob(chunks, { type: recorder.mimeType });
       if (canceled) return reject(new DOMException('Recording canceled', 'AbortError'));
